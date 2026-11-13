@@ -3414,7 +3414,6 @@ export const dbService = {
 	},
 
 	// --- REAL-TIME PRESENCE & ONLINE LEARNERS ---
-
 	async updateUserPresence(
 		userId,
 		{
@@ -3484,7 +3483,6 @@ export const dbService = {
 	},
 
 	// get online user
-
 	async getOnlineLearners(currentUserId = null) {
 		let rawPresences = [];
 
@@ -3617,11 +3615,271 @@ export const dbService = {
 		return list;
 	},
 
+	// --- ONE-TO-ONE CALL REQUEST SYSTEM ---
+
+	async createCallRequest({
+		callerId,
+		receiverId,
+		mediaMode = 'video',
+		topic = 'Conversational Practice',
+	}) {
+		if (!callerId || !receiverId) {
+			throw new Error('Caller and receiver are required.');
+		}
+
+		if (callerId === receiverId) {
+			throw new Error('You cannot call yourself.');
+		}
+
+		if (!isSupabaseConfigured) {
+			throw new Error('Supabase is required for real-time calls.');
+		}
+
+		const roomId = `room_${[callerId, receiverId].sort().join('_')}`;
+
+		const request = {
+			caller_id: callerId,
+			receiver_id: receiverId,
+			room_id: roomId,
+			media_mode: mediaMode,
+			topic,
+			status: 'ringing',
+			created_at: new Date().toISOString(),
+			expires_at: new Date(Date.now() + 30000).toISOString(),
+		};
+
+		const { data, error } = await supabase
+			.from('call_requests')
+			.insert([request])
+			.select()
+			.single();
+
+		if (error) {
+			console.error('Create call request error:', error);
+			throw error;
+		}
+
+		return data;
+	},
+
+	async acceptCallRequest(requestId, receiverId) {
+		if (!requestId || !receiverId) {
+			throw new Error('Call request and receiver are required.');
+		}
+
+		const { data, error } = await supabase
+			.from('call_requests')
+			.update({
+				status: 'accepted',
+				accepted_at: new Date().toISOString(),
+			})
+			.eq('id', requestId)
+			.eq('receiver_id', receiverId)
+			.eq('status', 'ringing')
+			.select()
+			.single();
+
+		if (error) {
+			console.error('Accept call request error:', error);
+			throw error;
+		}
+
+		if (!data) {
+			throw new Error('Call request is no longer available.');
+		}
+
+		return data;
+	},
+
+	async rejectCallRequest(requestId, receiverId) {
+		if (!requestId || !receiverId) {
+			throw new Error('Call request and receiver are required.');
+		}
+
+		const { data, error } = await supabase
+			.from('call_requests')
+			.update({
+				status: 'rejected',
+				rejected_at: new Date().toISOString(),
+			})
+			.eq('id', requestId)
+			.eq('receiver_id', receiverId)
+			.eq('status', 'ringing')
+			.select()
+			.single();
+
+		if (error) {
+			console.error('Reject call request error:', error);
+			throw error;
+		}
+
+		return data;
+	},
+
+	async cancelCallRequest(requestId, callerId) {
+		const { data, error } = await supabase
+			.from('call_requests')
+			.update({
+				status: 'cancelled',
+			})
+			.eq('id', requestId)
+			.eq('caller_id', callerId)
+			.eq('status', 'ringing')
+			.select()
+			.single();
+
+		if (error) throw error;
+		return data;
+	},
+
+	// PASTE these two functions inside the `dbService = { ... }` object in dbService.js,
+	// right above `subscribeToOutgoingCalls(...)`.
+
+	// Read one call request (used for polling fallback)
+
+	// PASTE these functions inside the `dbService = { ... }` object in dbService.js,
+	// right above `subscribeToOutgoingCalls(...)`.
+	// (getCallRequest and getPendingIncomingCalls may already be pasted - don't duplicate them.
+	//  NEW: endCallRequest and subscribeToCallRequest.)
+
+	// Read one call request (used for polling fallback)
+	async getCallRequest(requestId) {
+		if (!isSupabaseConfigured || !requestId) return null;
+		const { data, error } = await supabase
+			.from('call_requests')
+			.select('*')
+			.eq('id', requestId)
+			.maybeSingle();
+		if (error) {
+			console.warn('getCallRequest error:', error);
+			return null;
+		}
+		return data;
+	},
+
+	// Calls currently ringing for this user (newest first, not expired)
+	async getPendingIncomingCalls(userId) {
+		if (!isSupabaseConfigured || !userId) return [];
+		const { data, error } = await supabase
+			.from('call_requests')
+			.select('*')
+			.eq('receiver_id', userId)
+			.eq('status', 'ringing')
+			.gt('expires_at', new Date().toISOString())
+			.order('created_at', { ascending: false })
+			.limit(5);
+		if (error) {
+			console.warn('getPendingIncomingCalls error:', error);
+			return [];
+		}
+		return data || [];
+	},
+
+	// NEW: either person ends an active call -> the other side is notified
+	async endCallRequest(requestId, userId) {
+		if (!isSupabaseConfigured || !requestId) return null;
+		const { data, error } = await supabase
+			.from('call_requests')
+			.update({
+				status: 'ended',
+				ended_at: new Date().toISOString(),
+				ended_by: userId,
+			})
+			.eq('id', requestId)
+			.eq('status', 'accepted')
+			.select()
+			.maybeSingle();
+		if (error) {
+			console.warn('endCallRequest error:', error);
+			return null;
+		}
+		return data;
+	},
+
+	// NEW: listen to one call request (both caller and receiver use this during a call)
+	subscribeToCallRequest(requestId, callback) {
+		if (!isSupabaseConfigured || !requestId) {
+			return () => {};
+		}
+
+		const channel = supabase
+			.channel(`call-request-${requestId}`)
+			.on(
+				'postgres_changes',
+				{
+					event: 'UPDATE',
+					schema: 'public',
+					table: 'call_requests',
+					filter: `id=eq.${requestId}`,
+				},
+				(payload) => callback(payload)
+			)
+			.subscribe();
+
+		return () => {
+			supabase.removeChannel(channel);
+		};
+	},
+
+	// Caller listens for accept/reject/cancel updates
+	subscribeToOutgoingCalls(callerId, callback) {
+		if (!isSupabaseConfigured || !callerId) {
+			return () => {};
+		}
+
+		const channel = supabase
+			.channel(`outgoing-calls-${callerId}`)
+			.on(
+				'postgres_changes',
+				{
+					event: 'UPDATE',
+					schema: 'public',
+					table: 'call_requests',
+					filter: `caller_id=eq.${callerId}`,
+				},
+				(payload) => callback(payload)
+			)
+			.subscribe();
+
+		return () => supabase.removeChannel(channel);
+	},
+
+	subscribeToIncomingCalls(userId, callback) {
+		if (!isSupabaseConfigured || !userId) {
+			return () => {};
+		}
+
+		const channel = supabase
+			.channel(`incoming-calls-${userId}`)
+			.on(
+				'postgres_changes',
+				{
+					event: '*',
+					schema: 'public',
+					table: 'call_requests',
+					filter: `receiver_id=eq.${userId}`,
+				},
+				(payload) => {
+					callback(payload);
+				}
+			)
+			.subscribe();
+
+		return () => {
+			supabase.removeChannel(channel);
+		};
+	},
+
 	// Cross-tab real-time listener hook helper
 	subscribe(callback) {
 		if (!broadcastChannel) return () => {};
+
 		const listener = (event) => callback(event.data);
+
 		broadcastChannel.addEventListener('message', listener);
-		return () => broadcastChannel.removeEventListener('message', listener);
+
+		return () => {
+			broadcastChannel.removeEventListener('message', listener);
+		};
 	},
 };
