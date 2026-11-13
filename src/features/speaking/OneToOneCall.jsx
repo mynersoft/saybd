@@ -24,25 +24,6 @@ import {
 	Download,
 } from 'lucide-react';
 
-const PRACTICE_TOPICS = [
-	{
-		title: 'Icebreaker',
-		text: 'Where are you from, and what is your favorite traditional dish or street food there?',
-	},
-	{
-		title: 'Ambitions',
-		text: 'What is a major personal or career goal you want to achieve within the next two years?',
-	},
-	{
-		title: 'Work & Tech',
-		text: 'How do you currently use English in your studies or daily work routine?',
-	},
-	{
-		title: 'Debate',
-		text: 'Do you prefer working from home or working in an office with colleagues? Why?',
-	},
-];
-
 export function OneToOneCall({
 	partner,
 	currentUser,
@@ -436,9 +417,6 @@ export function OneToOneCall({
 							{partner?.country || 'Bangladesh'} •{' '}
 							{partner?.native_language || 'Bengali'}
 						</p>
-						<p className="text-xs text-indigo-400 mt-0.5">
-							Speaking Partner • Connected via WebRTC
-						</p>
 					</div>
 
 					<div className="absolute bottom-3 left-3 px-2.5 py-1 rounded-lg bg-slate-950/80 backdrop-blur-md text-[11px] font-semibold text-slate-200">
@@ -485,38 +463,6 @@ export function OneToOneCall({
 					</div>
 				</div>
 			</div>
-
-			{/* Conversation Starter */}
-			{showTopicPrompt && (
-				<div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-20 w-11/12 max-w-lg bg-slate-900/90 backdrop-blur-md border border-indigo-500/30 rounded-2xl p-3 sm:p-4 shadow-xl text-center">
-					<div className="flex items-center justify-between pb-1 text-xs text-indigo-400 font-bold uppercase tracking-wider">
-						<span className="flex items-center gap-1.5">
-							<Sparkles className="w-3.5 h-3.5" /> Conversation
-							Starter: {PRACTICE_TOPICS[currentTopicIndex].title}
-						</span>
-						<div className="flex items-center gap-2">
-							<button
-								onClick={() =>
-									setCurrentTopicIndex(
-										(prev) =>
-											(prev + 1) % PRACTICE_TOPICS.length
-									)
-								}
-								className="text-[11px] hover:text-white underline">
-								Next Topic ↻
-							</button>
-							<button
-								onClick={() => setShowTopicPrompt(false)}
-								className="text-slate-400 hover:text-white">
-								✕
-							</button>
-						</div>
-					</div>
-					<p className="text-xs sm:text-sm text-slate-200 font-medium mt-1">
-						"{PRACTICE_TOPICS[currentTopicIndex].text}"
-					</p>
-				</div>
-			)}
 
 			{/* Bottom Call Controls */}
 			<div className="absolute bottom-3 sm:bottom-6 left-1/2 transform -translate-x-1/2 z-30 flex items-center justify-center gap-1.5 sm:gap-3 p-2 sm:p-3 rounded-2xl bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 shadow-2xl max-w-[96vw] overflow-x-auto">
