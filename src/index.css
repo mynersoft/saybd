@@ -19,7 +19,7 @@
 /* Custom scrollbars for clean UI */
 ::-webkit-scrollbar {
   width: 6px;
-  height: 6px;
+  height: 7px;
 }
 
 ::-webkit-scrollbar-track {
