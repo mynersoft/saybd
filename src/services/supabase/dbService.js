@@ -615,6 +615,30 @@ export const dbService = {
 		return mentors.find((m) => m.user_id === userId);
 	},
 
+
+
+
+
+async reviewMentorApplication({ applicationId, status, rejectionReason = '' }) {
+  if (!isSupabaseConfigured) throw new Error('Supabase is not configured');
+
+  const { data, error } = await supabase.rpc('review_mentor_application', {
+    p_application_id: applicationId,
+    p_status: status,
+    p_reason: rejectionReason || null,
+  });
+  if (error) throw new Error(error.message);
+
+  // Email (best effort: approval still works if email fails)
+  try {
+    await supabase.functions.invoke('send-mentor-email', {
+      body: { to: data.email, name: data.full_name, status },
+    });
+  } catch (e) {
+    console.warn('Mentor email not sent:', e);
+  }
+  return data;
+},
 	// --- MONTHLY SPEAKING PRACTICE CALENDAR (Asia/Dhaka) ---
 	// Calculates one-to-one speaking session durations per day for calendar view
 	// Strictly excludes mentor classroom time
