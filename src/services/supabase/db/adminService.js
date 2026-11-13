@@ -4,8 +4,10 @@ import {
 	getLocalTable,
 	setLocalTable,
 } from './dbCore.js';
+import { supabase, isSupabaseConfigured } from '../supabaseClient.js';
 
 export const adminService = {
+
 	// --- PLATFORM SETTINGS ---
 	async getPlatformSettings() {
 		return getLocalTable('platform_settings', {
@@ -239,4 +241,22 @@ export const adminService = {
 			commissionBdt: financials?.platformCommissionBdt || 0,
 		};
 	},
+async getSupabaseUsage() {
+  if (!isSupabaseConfigured) throw new Error('Supabase is not configured');
+  const { data, error } = await supabase.rpc('admin_supabase_usage');
+  if (error) throw new Error(error.message);
+  return data;
+},
+
+async getSupabaseApiRequests() {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase.functions.invoke('supabase-usage');
+    if (error) return null;
+    return data;
+  } catch {
+    return null;
+  }
+},
+
 };
