@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useNotification } from '../../contexts/NotificationContext.jsx';
 import { formatCurrency, formatDate } from '../../utils/formatters.js';
 import { COMMUNITY_STATUS, ROLES } from '../../config/constants.js';
+import { SupabaseUsagePanel } from './SupabaseUsagePanel.jsx';
 import {
   Trophy,
   Users,
@@ -244,6 +245,7 @@ const handleReviewMentorApp = async (applicationId, status, rejectionReason = ''
             { id: 'payouts', label: `Payouts (${withdrawals.filter(w => w.status === 'pending').length})`, icon: CreditCard },
             { id: 'users', label: 'Users', icon: Users },
             { id: 'classes', label: 'Live Sessions', icon: Radio },
+{ id: 'supabase-usage', label: 'Supabase Usage', icon: Database },
             { id: 'settings', label: 'Settings', icon: Settings },
           ].map((tab) => (
             <button
@@ -315,6 +317,10 @@ const handleReviewMentorApp = async (applicationId, status, rejectionReason = ''
       )}
 
       {/* TAB 1: OVERVIEW */}
+
+{activeTab === 'supabase-usage' && <SupabaseUsagePanel />}
+
+
       {activeTab === 'overview' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
