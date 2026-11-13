@@ -1,5 +1,6 @@
 import { MediaProviderInterface } from './MediaProviderInterface.js';
 import { ICE_SERVERS } from '../../config/constants.js';
+import { supabase } from '../supabase/supabaseClient.js';
 
 export class WebRTCProvider extends MediaProviderInterface {
   constructor(config = {}) {
@@ -7,8 +8,16 @@ export class WebRTCProvider extends MediaProviderInterface {
     this.peerConnection = null;
     this.roomId = null;
     this.currentParticipant = null;
-    this.signalingChannel = null;
-    this.networkQuality = 'excellent'; // 'excellent', 'good', 'fair', 'poor'
+    this.channel = null;
+    this.localChannel = null;
+    this.pendingCandidates = [];
+    this.remoteDescSet = false;
+    this.offerSent = false;
+    this.makingOffer = false;
+    this.closed = false;
+    this.peerId = null;
+    this.retryTimer = null;
+    this.networkQuality = 'excellent';
   }
 
   async initialize() {
@@ -17,15 +26,12 @@ export class WebRTCProvider extends MediaProviderInterface {
 
   async acquireLocalMedia(constraints = { audio: true, video: true }) {
     try {
-      if (this.localStream) {
-        this.localStream.getTracks().forEach(t => t.stop());
-      }
+      if (this.localStream) this.localStream.getTracks().forEach((t) => t.stop());
       this.localStream = await navigator.mediaDevices.getUserMedia(constraints);
       this.emit('local_stream', this.localStream);
       return this.localStream;
     } catch (error) {
       console.warn('getUserMedia warning/fallback:', error);
-      // Fallback: If camera is busy or denied, attempt audio-only
       if (constraints.video) {
         try {
           this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
@@ -40,35 +46,159 @@ export class WebRTCProvider extends MediaProviderInterface {
     }
   }
 
+  // ---------- signaling ----------
+  _send(msg) {
+    const payload = { ...msg, from: this.currentParticipant.id };
+    if (this.channel) {
+      this.channel.send({ type: 'broadcast', event: 'signal', payload });
+    } else if (this.localChannel) {
+      this.localChannel.postMessage(payload);
+    }
+  }
+
+  async _openSignaling(roomId) {
+    const handler = (msg) =>
+      this._onSignal(msg).catch((e) => console.warn('signal error:', e));
+
+    if (supabase) {
+      await new Promise((resolve) => {
+        this.channel = supabase.channel(`call:${roomId}`, {
+          config: { broadcast: { self: false } },
+        });
+        this.channel.on('broadcast', { event: 'signal' }, ({ payload }) => handler(payload));
+        const timer = setTimeout(resolve, 8000);
+        this.channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            clearTimeout(timer);
+            resolve();
+          }
+        });
+      });
+    } else if (typeof BroadcastChannel !== 'undefined') {
+      this.localChannel = new BroadcastChannel(`saybd_room_${roomId}`);
+      this.localChannel.onmessage = (e) => handler(e.data);
+    }
+  }
+
+  async _onSignal(msg) {
+    if (this.closed || !msg || msg.from === this.currentParticipant.id) return;
+    const pc = this.peerConnection;
+    if (!pc) return;
+    this.peerId = msg.from;
+    console.log('[webrtc] signal in:', msg.type);
+    const iAmOfferer = String(this.currentParticipant.id) < String(msg.from);
+
+    switch (msg.type) {
+      case 'ready':
+        this._send({ type: 'ready-ack' });
+        if (iAmOfferer) await this._makeOffer();
+        break;
+      case 'ready-ack':
+        if (iAmOfferer) await this._makeOffer();
+        break;
+      case 'offer': {
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.data));
+        this.remoteDescSet = true;
+        await this._flushCandidates();
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        this._send({ type: 'answer', data: pc.localDescription });
+        break;
+      }
+      case 'answer':
+        if (pc.signalingState === 'have-local-offer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(msg.data));
+          this.remoteDescSet = true;
+          await this._flushCandidates();
+        }
+        break;
+      case 'candidate':
+        if (this.remoteDescSet) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(msg.data));
+          } catch (e) {
+            console.warn('addIceCandidate failed:', e);
+          }
+        } else {
+          this.pendingCandidates.push(msg.data);
+        }
+        break;
+      case 'bye':
+        this.emit('participant_left', { id: msg.from });
+        break;
+      default:
+        break;
+    }
+  }
+
+  async _flushCandidates() {
+    const queued = this.pendingCandidates;
+    this.pendingCandidates = [];
+    for (const c of queued) {
+      try {
+        await this.peerConnection.addIceCandidate(new RTCIceCandidate(c));
+      } catch (e) {
+        console.warn('queued candidate failed:', e);
+      }
+    }
+  }
+
+  async _makeOffer() {
+    const pc = this.peerConnection;
+    if (!pc || this.makingOffer) return;
+    if (this.offerSent) {
+      if (pc.signalingState === 'have-local-offer' && pc.localDescription) {
+        this._send({ type: 'offer', data: pc.localDescription });
+      }
+      return;
+    }
+    this.makingOffer = true;
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      this._send({ type: 'offer', data: pc.localDescription });
+      this.offerSent = true;
+    } finally {
+      this.makingOffer = false;
+    }
+  }
+
+  // ---------- room lifecycle ----------
   async joinRoom(roomId, participant) {
+    if (this.closed) return false;
     this.roomId = roomId;
     this.currentParticipant = participant;
 
-    // Initialize RTCPeerConnection with STUN servers
-    this.peerConnection = new RTCPeerConnection({
+    const pc = new RTCPeerConnection({
       iceServers: this.config.iceServers || ICE_SERVERS,
-      iceCandidatePoolSize: 10,
+      iceCandidatePoolSize: 4,
     });
+    this.peerConnection = pc;
 
-    // Add local tracks to peer connection
     if (this.localStream) {
-      this.localStream.getTracks().forEach(track => {
-        this.peerConnection.addTrack(track, this.localStream);
-      });
+      this.localStream.getTracks().forEach((t) => pc.addTrack(t, this.localStream));
     }
 
-    // Handle remote track arrivals
-    this.peerConnection.ontrack = (event) => {
-      const [remoteStream] = event.streams;
-      if (remoteStream) {
-        this.remoteStreams.set('peer_primary', remoteStream);
-        this.emit('remote_stream', remoteStream);
+    const remoteStream = new MediaStream();
+    pc.ontrack = (event) => {
+      const incoming = event.streams && event.streams[0];
+      if (incoming) {
+        incoming.getTracks().forEach((t) => {
+          if (!remoteStream.getTracks().includes(t)) remoteStream.addTrack(t);
+        });
+      } else if (!remoteStream.getTracks().includes(event.track)) {
+        remoteStream.addTrack(event.track);
       }
+      this.remoteStreams.set('peer_primary', remoteStream);
+      this.emit('remote_stream', remoteStream);
     };
 
-    // Connection state changes
-    this.peerConnection.onconnectionstatechange = () => {
-      const state = this.peerConnection.connectionState;
+    pc.onicecandidate = (event) => {
+      if (event.candidate) this._send({ type: 'candidate', data: event.candidate });
+    };
+
+    pc.onconnectionstatechange = () => {
+      const state = pc.connectionState;
       this.emit('connection_state', state);
       if (state === 'connected') {
         this.networkQuality = 'excellent';
@@ -76,66 +206,58 @@ export class WebRTCProvider extends MediaProviderInterface {
       } else if (state === 'disconnected' || state === 'failed') {
         this.networkQuality = 'poor';
         this.emit('network_quality', this.networkQuality);
+        if (state === 'failed') {
+          console.warn('WebRTC failed. A TURN server is probably needed.');
+        }
       }
     };
 
-    // Simulated signaling exchange via BroadcastChannel for zero-config multi-tab testing
-    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-      this.signalingChannel = new BroadcastChannel(`saybd_room_${roomId}`);
-      this.signalingChannel.onmessage = async (event) => {
-        const { type, data, senderId } = event.data || {};
-        if (senderId === participant.id) return; // ignore self
+    await this._openSignaling(roomId);
+    if (this.closed) return false;
 
-        if (type === 'peer_joined') {
-          this.emit('participant_joined', data);
-        } else if (type === 'peer_left') {
-          this.emit('participant_left', data);
-        }
-      };
-
-      // Notify others in this room
-      this.signalingChannel.postMessage({
-        type: 'peer_joined',
-        data: participant,
-        senderId: participant.id,
-      });
-    }
+    this._send({ type: 'ready' });
+    let tries = 0;
+    this.retryTimer = setInterval(() => {
+      if (this.closed || pc.connectionState === 'connected' || ++tries > 20) {
+        clearInterval(this.retryTimer);
+        return;
+      }
+      console.log('[webrtc] re-announce', pc.connectionState, pc.signalingState);
+      this._send({ type: 'ready' });
+    }, 2000);
 
     this.emit('room_joined', { roomId, participant });
     return true;
   }
 
   async leaveRoom() {
-    if (this.signalingChannel && this.currentParticipant) {
-      try {
-        this.signalingChannel.postMessage({
-          type: 'peer_left',
-          data: this.currentParticipant,
-          senderId: this.currentParticipant.id,
-        });
-        this.signalingChannel.close();
-      } catch (e) {
-        // ignore
-      }
-      this.signalingChannel = null;
+    this.closed = true;
+    clearInterval(this.retryTimer);
+    try {
+      if (this.currentParticipant) this._send({ type: 'bye' });
+    } catch (e) {}
+    if (this.channel && supabase) {
+      try { supabase.removeChannel(this.channel); } catch (e) {}
+      this.channel = null;
     }
-
+    if (this.localChannel) {
+      try { this.localChannel.close(); } catch (e) {}
+      this.localChannel = null;
+    }
     if (this.peerConnection) {
       this.peerConnection.close();
       this.peerConnection = null;
     }
-
     this.cleanup();
     this.emit('room_left', { roomId: this.roomId });
     this.roomId = null;
-    this.currentParticipant = null;
   }
 
   toggleMicrophone(enabled) {
     if (!this.localStream) return false;
-    const audioTrack = this.localStream.getAudioTracks()[0];
-    if (audioTrack) {
-      audioTrack.enabled = enabled;
+    const track = this.localStream.getAudioTracks()[0];
+    if (track) {
+      track.enabled = enabled;
       this.emit('microphone_state', enabled);
       return enabled;
     }
@@ -144,9 +266,9 @@ export class WebRTCProvider extends MediaProviderInterface {
 
   toggleCamera(enabled) {
     if (!this.localStream) return false;
-    const videoTrack = this.localStream.getVideoTracks()[0];
-    if (videoTrack) {
-      videoTrack.enabled = enabled;
+    const track = this.localStream.getVideoTracks()[0];
+    if (track) {
+      track.enabled = enabled;
       this.emit('camera_state', enabled);
       return enabled;
     }
