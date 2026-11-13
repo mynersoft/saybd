@@ -143,16 +143,22 @@ export function AdminDashboard({ activeTabProp, onTabChange }) {
     loadData();
   };
 
-  const handleReviewMentorApp = async (applicationId, status, rejectionReason = '') => {
-    await dbService.reviewMentorApplication({
-      applicationId,
-      status,
-      reviewedBy: currentUser?.id,
-      rejectionReason
-    });
-    addToast(status === 'approved' ? 'Mentor application approved and user promoted to Mentor!' : 'Mentor application rejected.', status === 'approved' ? 'success' : 'info');
-    loadData();
-  };
+  
+
+const handleReviewMentorApp = async (applicationId, status, rejectionReason = '') => {
+  try {
+    await dbService.reviewMentorApplication({ applicationId, status, rejectionReason });
+    addToast(
+      status === 'approved'
+        ? 'Mentor approved. Notification and email sent!'
+        : 'Mentor application rejected.',
+      status === 'approved' ? 'success' : 'info'
+    );
+  } catch (err) {
+    addToast(err.message || 'Could not review application', 'error');
+  }
+  loadData();
+};
 
   const handleSaveSettings = async (e) => {
     e.preventDefault();
