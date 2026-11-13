@@ -2045,6 +2045,67 @@ async reviewMentorApplication({ applicationId, status, rejectionReason = '' }) {
 		};
 	},
 
+
+
+
+async createMentorApplication({
+  userId,
+  fullName,
+  email,
+  title,
+  bio,
+  yearsExperience,
+  expertise,
+  resumeUrl,
+  videoIntroUrl,
+}) {
+  if (!isSupabaseConfigured) throw new Error('Supabase is not configured');
+
+  // Do not set id: the database generates a proper UUID
+  const entry = {
+    user_id: userId,
+    full_name: fullName,
+    email,
+    title,
+    bio,
+    years_experience: Number(yearsExperience || 0),
+    expertise: Array.isArray(expertise) ? expertise : [expertise].filter(Boolean),
+    resume_url: resumeUrl || null,
+    video_intro_url: videoIntroUrl || null,
+    status: 'pending',
+  };
+
+  const { data, error } = await supabase
+    .from('mentor_applications')
+    .insert([entry])
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data;
+},
+
+async getMentorApplications(statusFilter = null) {
+  if (!isSupabaseConfigured) return [];
+
+  let query = supabase
+    .from('mentor_applications')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (statusFilter) query = query.eq('status', statusFilter);
+
+  const { data, error } = await query;
+  if (error) {
+    console.error('Could not load mentor applications:', error.message);
+    return [];
+  }
+  return data || [];
+},
+
+
+
+	
+
 	// --- ENROLLMENTS & PAYMENTS ---
 	async getEnrollments(userId) {
 		const key = `enrollments_${userId}`;
