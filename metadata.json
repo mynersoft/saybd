@@ -1,0 +1,11 @@
+{
+  "name": "SayBD",
+  "description": "Practice English. Connect. Improve. Production-minded English learning platform with real-time peer matching, mentor classrooms, and courses.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
