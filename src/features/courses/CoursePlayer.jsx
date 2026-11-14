@@ -20,6 +20,74 @@ import { useNotification } from '../../contexts/NotificationContext.jsx';
 import { dbService } from '../../services/supabase/dbService.js';
 import { Modal } from '../../components/common/Modal.jsx';
 
+function LessonPdfList({ lesson }) {
+  const { addToast } = useNotification();
+  const [busy, setBusy] = useState(null);
+
+  const items = [
+    ...(Array.isArray(lesson?.pdf_resources) ? lesson.pdf_resources : []),
+    ...(Array.isArray(lesson?.resources) ? lesson.resources : []),
+  ];
+  if (items.length === 0) return null;
+
+  const openPdf = async (item, i, download) => {
+    if (typeof item === 'string') {
+      addToast('This handout has no file attached yet.', 'info');
+      return;
+    }
+    setBusy(`${i}-${download ? 'd' : 'v'}`);
+    const tab = download ? null : window.open('', '_blank');
+    try {
+      const url = await dbService.getLessonPdfUrl(item, { download });
+      if (tab) tab.location.href = url;
+      else window.location.href = url;
+    } catch (err) {
+      if (tab) tab.close();
+      addToast(err.message || 'Could not open the PDF.', 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+      <h5 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+        <FileText className="w-3.5 h-3.5 text-indigo-500" /> PDF Handouts
+      </h5>
+      <div className="space-y-2">
+        {items.map((item, i) => (
+          <div
+            key={i}
+            className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+          >
+            <span className="flex items-center gap-2 min-w-0 text-xs font-semibold text-slate-700 dark:text-slate-200">
+              <FileText className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+              <span className="truncate">{typeof item === 'string' ? item : item.name}</span>
+            </span>
+            <span className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={() => openPdf(item, i, false)}
+                disabled={busy !== null}
+                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {busy === `${i}-v` ? '...' : 'View'}
+              </button>
+              <button
+                onClick={() => openPdf(item, i, true)}
+                disabled={busy !== null}
+                className="p-1.5 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-600 disabled:opacity-50"
+                title="Download"
+              >
+                <Download className="w-3.5 h-3.5" />
+              </button>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function CoursePlayer({ course, onBack }) {
   const { currentUser } = useAuth();
   const { addToast } = useNotification();
@@ -210,26 +278,8 @@ export function CoursePlayer({ course, onBack }) {
               </div>
             )}
 
-            {/* Downloadable Resources */}
-            {activeLesson?.resources && activeLesson.resources.length > 0 && (
-              <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
-                <h5 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
-                  <FileText className="w-3.5 h-3.5 text-indigo-500" /> Downloadable PDF Worksheets
-                </h5>
-                <div className="flex flex-wrap gap-2">
-                  {activeLesson.resources.map((res, i) => (
-                    <button
-                      key={i}
-                      onClick={() => addToast(`Downloading ${res}...`, 'info')}
-                      className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-500 text-slate-700 dark:text-slate-200 transition-colors"
-                    >
-                      <Download className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                      <span>{res}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+            {/* PDF Handouts */}
+            <LessonPdfList lesson={activeLesson} />
           </div>
 
         </div>
