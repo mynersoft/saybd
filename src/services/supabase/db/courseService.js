@@ -9,6 +9,36 @@ import {
 } from './dbCore.js';
 
 export const courseService = {
+	// --- LESSON PDF HANDOUTS (Supabase Storage bucket: course-pdfs, private) ---
+	async uploadLessonPdf(mentorId, file) {
+		if (!file) throw new Error('Choose a PDF file.');
+		const isPdf =
+			file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+		if (!isPdf) throw new Error('Only PDF files are allowed.');
+		if (file.size > 20 * 1024 * 1024)
+			throw new Error('PDF must be 20 MB or smaller.');
+		if (!isSupabaseConfigured) throw new Error('Supabase is not configured');
+
+		const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+		const path = `${mentorId}/${Date.now()}-${safeName}`;
+		const { error } = await supabase.storage
+			.from('course-pdfs')
+			.upload(path, file, { contentType: 'application/pdf', upsert: false });
+		if (error) throw new Error(error.message);
+		return { name: file.name, path, size: file.size };
+	},
+
+	async getLessonPdfUrl(pdf, { download = false } = {}) {
+		if (!pdf || typeof pdf === 'string')
+			throw new Error('No file is attached to this handout.');
+		if (!isSupabaseConfigured) throw new Error('Supabase is not configured');
+		const { data, error } = await supabase.storage
+			.from('course-pdfs')
+			.createSignedUrl(pdf.path, 3600, download ? { download: pdf.name || true } : undefined);
+		if (error) throw new Error(error.message);
+		return data.signedUrl;
+	},
+
 	// --- COURSES (MY COURSES) ---
 	async getCourses() {
 		if (isSupabaseConfigured) {
