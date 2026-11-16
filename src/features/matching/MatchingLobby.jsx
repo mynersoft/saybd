@@ -6,7 +6,7 @@ import {
 	matchingEngine,
 	MATCH_STATES,
 } from '../../services/matching/matchingEngine.js';
-import { OneToOneCall } from '../speaking/OneToOneCall.jsx';
+import { useActiveCall } from '../../contexts/ActiveCallContext.jsx';
 import { UpgradeModal } from '../../components/common/UpgradeModal.jsx';
 import { formatSecondsToTimer } from '../../utils/formatters.js';
 import { PRACTICE_TOPICS } from '../../config/constants.js';
@@ -30,6 +30,7 @@ import { InviteFriendsModal } from '../../components/practice/InviteFriendsModal
 export function MatchingLobby() {
 	const { currentUser, remainingSeconds, recordSpeakingTime } = useAuth();
 	const { addToast } = useNotification();
+	const { call: globalCall, startCall, expand: expandCall } = useActiveCall();
 
 	const [matchState, setMatchState] = useState(MATCH_STATES.IDLE);
 	const [candidate, setCandidate] = useState(null);
@@ -258,17 +259,39 @@ export function MatchingLobby() {
 		document.body.removeChild(a);
 	};
 
-	// Active call view
-	if (activePartner) {
+	// Hand the call to the global call layer (so it survives page changes / minimize)
+	useEffect(() => {
+		if (!activePartner) return;
+		startCall({
+			partner: activePartner,
+			callRequestId: activeRequestId,
+			audioOnly,
+			onEnd: handleEndCall,
+			onNext: handleNextPartner,
+		});
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [activePartner]);
+
+	// Call in progress (full screen call UI lives in ActiveCallProvider)
+	if (activePartner || globalCall) {
+		const who = activePartner?.full_name || globalCall?.partner?.full_name || 'your partner';
 		return (
-			<OneToOneCall
-				partner={activePartner}
-				currentUser={currentUser}
-				initialAudioOnly={audioOnly}
-				callRequestId={activeRequestId}
-				onEndCall={handleEndCall}
-				onNextPartner={handleNextPartner}
-			/>
+			<div className="max-w-md mx-auto py-16 text-center space-y-4">
+				<div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/15 flex items-center justify-center">
+					<span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
+				</div>
+				<h2 className="text-lg font-bold text-slate-900 dark:text-white">
+					You are in a call with {who}
+				</h2>
+				<p className="text-sm text-slate-500">
+					The call is minimized. You can keep browsing, or go back to the call.
+				</p>
+				<button
+					onClick={expandCall}
+					className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold">
+					Return to call
+				</button>
+			</div>
 		);
 	}
 
