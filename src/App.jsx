@@ -24,6 +24,7 @@ import { RoleGuard } from './components/auth/RoleGuard.jsx';
 
 import { PracticeInvitePage } from './pages/PracticeInvitePage.jsx';
 import { IncomingCallHandler } from './components/calls/Incomingcallhandler.jsx';
+import { ActiveCallProvider } from './contexts/ActiveCallContext.jsx';
 
 function MainLayout({ children }) {
   return (
@@ -43,8 +44,9 @@ export default function App() {
     <ThemeProvider>
       <NotificationProvider>
         <AuthProvider>
-          <IncomingCallHandler/>
           <BrowserRouter>
+            <ActiveCallProvider>
+            <IncomingCallHandler />
             <Routes>
               {/* Dedicated Full-Screen Unified Dashboards with ProtectedRoute & RoleGuard */}
               <Route
@@ -137,6 +139,7 @@ export default function App() {
                 }
               />
             </Routes>
+            </ActiveCallProvider>
           </BrowserRouter>
         </AuthProvider>
       </NotificationProvider>
