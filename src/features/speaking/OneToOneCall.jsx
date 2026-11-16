@@ -6,23 +6,67 @@ import { callRecorder } from '../../services/media/callRecorder.js';
 import { PostCallDownloadModal } from '../../components/speaking/PostCallDownloadModal.jsx';
 import { useNotification } from '../../contexts/NotificationContext.jsx';
 import { dbService } from '../../services/supabase/dbService.js';
-
 import {
   Mic,
   MicOff,
   Video,
   VideoOff,
   PhoneOff,
+  ArrowLeft,
+  MoreHorizontal,
+  Volume2,
+  VolumeX,
   SkipForward,
   ShieldAlert,
-  Signal,
-  Volume2,
-  Sparkles,
-  MessageSquare,
   Circle,
   Square,
   Download,
 } from 'lucide-react';
+
+/* ---------- small UI helpers ---------- */
+
+function PartnerAvatar({ user, className = '' }) {
+  if (user?.avatar_url) {
+    return (
+      <img
+        src={user.avatar_url}
+        alt={user.full_name || 'Partner'}
+        className={`object-cover ${className}`}
+      />
+    );
+  }
+  return (
+    <div
+      className={`flex items-center justify-center bg-white/15 text-white font-extrabold uppercase ${className}`}
+    >
+      {(user?.full_name || 'U').charAt(0)}
+    </div>
+  );
+}
+
+function CtrlBtn({ onClick, active = false, danger = false, label, children }) {
+  const size = danger ? 'w-16 h-16' : 'w-14 h-14';
+  const tone = danger
+    ? 'bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/40'
+    : active
+      ? 'bg-white text-slate-900'
+      : 'bg-white/20 hover:bg-white/30 text-white';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className={`${size} ${tone} rounded-full flex items-center justify-center backdrop-blur-md transition-all active:scale-95 shrink-0`}
+    >
+      {children}
+    </button>
+  );
+}
+
+const HIDDEN_MEDIA = 'absolute w-px h-px opacity-0 pointer-events-none';
+
+/* ---------- main component ---------- */
 
 export function OneToOneCall({
   partner,
@@ -31,22 +75,28 @@ export function OneToOneCall({
   onNextPartner,
   initialAudioOnly = false,
   callRequestId = null,
+  // Minimize support (controlled by ActiveCallContext; falls back to local state)
+  minimized: minimizedProp,
+  onMinimize,
+  onExpand,
 }) {
   const { addToast } = useNotification();
+  const [innerMin, setInnerMin] = useState(false);
+  const isMin = minimizedProp ?? innerMin;
+  const minimize = () => (onMinimize ? onMinimize() : setInnerMin(true));
+  const expand = () => (onExpand ? onExpand() : setInnerMin(false));
+
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(initialAudioOnly);
+  const [speakerOff, setSpeakerOff] = useState(false);
   const [callSeconds, setCallSeconds] = useState(0);
-  const [networkQuality, setNetworkQuality] = useState({
-    rating: 'Excellent',
-    rtt: 38,
-  });
+  const [networkQuality, setNetworkQuality] = useState({ rating: 'Excellent', rtt: 38 });
   const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
   const [connState, setConnState] = useState('waiting');
+  const [menuOpen, setMenuOpen] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
-  const [showTopicPrompt, setShowTopicPrompt] = useState(true);
-  const [currentTopicIndex, setCurrentTopicIndex] = useState(0);
 
-  // Manual video recording (NO auto-recording, NO database saving)
+  // Manual local recording (never saved to database)
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [recordedVideo, setRecordedVideo] = useState(null);
@@ -56,8 +106,12 @@ export function OneToOneCall({
   const remoteVideoRef = useRef(null);
   const providerRef = useRef(null);
   const callSecondsRef = useRef(0);
-  const finishedRef = useRef(false); // guards against double end / double cleanup
+  const finishedRef = useRef(false);
   const addToastRef = useRef(addToast);
+
+  const isVideoCall = !initialAudioOnly;
+  const showRemoteVideo = isVideoCall && hasRemoteVideo;
+  const connected = connState === 'connected';
 
   useEffect(() => {
     addToastRef.current = addToast;
@@ -67,7 +121,38 @@ export function OneToOneCall({
     callSecondsRef.current = callSeconds;
   }, [callSeconds]);
 
-  // Safe, idempotent provider teardown
+  // Speaker button = mute / unmute partner audio
+  useEffect(() => {
+    if (remoteVideoRef.current) remoteVideoRef.current.muted = speakerOff;
+  }, [speakerOff]);
+
+  // Keep the screen awake during the call (best effort)
+  useEffect(() => {
+    let lock = null;
+    let cancelled = false;
+    const request = async () => {
+      try {
+        if ('wakeLock' in navigator) lock = await navigator.wakeLock.request('screen');
+      } catch {
+        /* not supported / denied */
+      }
+    };
+    request();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && !cancelled) request();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisible);
+      try {
+        lock && lock.release();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, []);
+
   const safeCleanupProvider = () => {
     const provider = providerRef.current;
     if (!provider) return;
@@ -84,7 +169,7 @@ export function OneToOneCall({
     }
   };
 
-  // Initialize Media Provider & WebRTC streams
+  // Media + WebRTC setup
   useEffect(() => {
     let active = true;
     finishedRef.current = false;
@@ -97,7 +182,6 @@ export function OneToOneCall({
           audio: true,
           video: !initialAudioOnly,
         });
-
         if (active && localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
@@ -110,7 +194,6 @@ export function OneToOneCall({
           const p = el.play();
           if (p && p.catch) p.catch((e) => console.warn('Remote play blocked:', e));
         });
-
         provider.on('connection_state', (st) => active && setConnState(st));
         provider.on('network_quality', (quality) => {
           if (active) {
@@ -121,34 +204,27 @@ export function OneToOneCall({
           }
         });
 
-        // IMPORTANT: sorted IDs so caller and receiver join the SAME room
         if (!active) {
           provider.cleanup();
           return;
         }
+        // Sorted IDs so caller and receiver join the SAME room
         const roomId = `room_${[currentUser.id, partner.id].sort().join('_')}`;
         await provider.joinRoom(roomId, currentUser);
       } catch (err) {
-        console.warn(
-          'Call setup error (falling back to simulated stream):',
-          err
-        );
+        console.warn('Call setup error:', err);
+        if (active) addToastRef.current(err.message || 'Could not start the call.', 'error');
       }
     }
 
     setupCall();
-
-    const interval = setInterval(() => {
-      setCallSeconds((s) => s + 1);
-    }, 1000);
+    const interval = setInterval(() => setCallSeconds((s) => s + 1), 1000);
 
     return () => {
       active = false;
       clearInterval(interval);
       try {
-        if (callRecorder.isRecording) {
-          callRecorder.stop().catch(() => {});
-        }
+        if (callRecorder.isRecording) callRecorder.stop().catch(() => {});
       } catch (e) {
         console.warn('Recorder stop on unmount failed:', e);
       }
@@ -157,32 +233,32 @@ export function OneToOneCall({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [partner.id]);
 
+  /* ---------- controls ---------- */
+
   const handleToggleMic = () => {
-    if (providerRef.current) {
-      const newState = !isMuted;
-      try {
-        providerRef.current.toggleMicrophone(!newState);
-      } catch (e) {
-        console.warn(e);
-      }
-      setIsMuted(newState);
+    if (!providerRef.current) return;
+    const next = !isMuted;
+    try {
+      providerRef.current.toggleMicrophone(!next);
+    } catch (e) {
+      console.warn(e);
     }
+    setIsMuted(next);
   };
 
   const handleToggleVideo = () => {
-    if (providerRef.current) {
-      const nextVideoOff = !isVideoOff;
-      try {
-        providerRef.current.toggleCamera(!nextVideoOff);
-      } catch (e) {
-        console.warn(e);
-      }
-      setIsVideoOff(nextVideoOff);
+    if (!providerRef.current) return;
+    const next = !isVideoOff;
+    try {
+      providerRef.current.toggleCamera(!next);
+    } catch (e) {
+      console.warn(e);
     }
+    setIsVideoOff(next);
   };
 
-  // Manual record toggle (button-driven only, NEVER saved to database)
   const handleToggleRecord = async () => {
+    setMenuOpen(false);
     if (isRecording) {
       try {
         const result = await callRecorder.stop();
@@ -210,20 +286,18 @@ export function OneToOneCall({
         setIsRecording(true);
         setRecordingSeconds(0);
         addToastRef.current(
-          'Local recording started. Only stored in browser memory; never saved to database.',
+          'Local recording started. Stored only in your browser, never saved to the database.',
           'info'
         );
       } catch (err) {
         addToastRef.current(
-          err.message ||
-            'Could not start recording. Check media permissions.',
+          err.message || 'Could not start recording. Check media permissions.',
           'error'
         );
       }
     }
   };
 
-  // Stop recorder safely and return the final video (or the earlier one)
   const finalizeRecording = async () => {
     let finalVideo = recordedVideo;
     if (isRecording) {
@@ -241,17 +315,13 @@ export function OneToOneCall({
     return finalVideo;
   };
 
-  // Tell the other person the call is over
   const notifyRemoteEnded = () => {
     if (callRequestId && currentUser?.id) {
-      dbService
-        .endCallRequest(callRequestId, currentUser.id)
-        .catch(() => {});
+      dbService.endCallRequest(callRequestId, currentUser.id).catch(() => {});
     }
   };
 
-  // End Call: ALWAYS ends, even if recorder / provider throws.
-  // fromRemote = true when the OTHER person ended the call.
+  // End the call. fromRemote = true when the OTHER person ended it.
   const performEnd = async (fromRemote = false) => {
     if (finishedRef.current) return;
     finishedRef.current = true;
@@ -261,11 +331,11 @@ export function OneToOneCall({
     safeCleanupProvider();
 
     if (finalVideo && finalVideo.url) {
-      // Show download modal first; call ends when modal closes
       setRecordedVideo(finalVideo);
+      expand(); // make sure the download dialog is visible
       setIsDownloadModalOpen(true);
-    } else {
-      if (onEndCall) onEndCall(callSecondsRef.current, null);
+    } else if (onEndCall) {
+      onEndCall(callSecondsRef.current, null);
     }
   };
 
@@ -285,24 +355,18 @@ export function OneToOneCall({
       performEndRef.current(true);
     };
 
-    const unsubscribe = dbService.subscribeToCallRequest(
-      callRequestId,
-      (payload) => {
-        const status = payload?.new?.status;
-        if (status === 'ended' || status === 'cancelled')
-          onRemoteEnded();
-      }
-    );
+    const unsubscribe = dbService.subscribeToCallRequest(callRequestId, (payload) => {
+      const status = payload?.new?.status;
+      if (status === 'ended' || status === 'cancelled') onRemoteEnded();
+    });
 
     const poll = setInterval(async () => {
       try {
         const row = await dbService.getCallRequest(callRequestId);
-        if (
-          row &&
-          (row.status === 'ended' || row.status === 'cancelled')
-        )
-          onRemoteEnded();
-      } catch {}
+        if (row && (row.status === 'ended' || row.status === 'cancelled')) onRemoteEnded();
+      } catch {
+        /* ignore */
+      }
     }, 3000);
 
     return () => {
@@ -317,268 +381,310 @@ export function OneToOneCall({
     if (onEndCall) onEndCall(callSecondsRef.current, recordedVideo);
   };
 
-  // Next Partner
   const handleNext = async () => {
+    setMenuOpen(false);
     if (finishedRef.current) return;
     finishedRef.current = true;
     notifyRemoteEnded();
-
     const finalVideo = await finalizeRecording();
     safeCleanupProvider();
     if (onNextPartner) onNextPartner(callSecondsRef.current, finalVideo);
   };
 
+  /* ---------- layout classes ---------- */
+
+  const miniVideoCard = isMin && showRemoteVideo;
+  const containerClass = isMin
+    ? miniVideoCard
+      ? 'fixed bottom-24 right-3 z-[100] w-28 h-40 rounded-2xl overflow-hidden shadow-2xl border border-white/30 bg-slate-900 text-white cursor-pointer'
+      : 'fixed bottom-20 left-3 right-3 md:left-auto md:right-4 md:bottom-4 md:w-80 z-[100] h-16 rounded-2xl overflow-hidden shadow-2xl bg-gradient-to-r from-[#2a1055] to-[#5b21b6] text-white cursor-pointer'
+    : 'fixed inset-0 z-[100] overflow-hidden text-white bg-gradient-to-b from-[#1b0a38] via-[#2a1055] to-[#4c1d95]';
+
+  const remoteVideoClass = showRemoteVideo
+    ? 'absolute inset-0 w-full h-full object-cover'
+    : HIDDEN_MEDIA;
+
+  const showLocalPip = isVideoCall && !isMin && !isVideoOff;
+  const localVideoClass = showLocalPip
+    ? 'absolute right-4 bottom-36 z-20 w-28 h-40 rounded-2xl object-cover border-2 border-white/70 shadow-2xl -scale-x-100 bg-slate-800'
+    : HIDDEN_MEDIA;
+
+  const statusLine = !connected
+    ? 'Connecting…'
+    : networkQuality.rating === 'Poor'
+      ? 'Poor connection'
+      : '';
+
   return (
-    <div className="relative min-h-[80vh] sm:min-h-[85vh] bg-slate-950 text-white rounded-2xl sm:rounded-3xl overflow-hidden flex flex-col shadow-2xl border border-slate-800">
-      {/* Top Header Bar */}
-      <div className="absolute top-0 left-0 right-0 z-20 p-2.5 sm:p-6 flex items-center justify-between bg-linear-to-b from-slate-950/80 to-transparent gap-2">
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <div className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-slate-900/80 backdrop-blur-md border border-slate-700/60 text-xs font-semibold shrink-0">
-            <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-            <span className="font-mono text-xs sm:text-sm tracking-wide">
-              {formatSecondsToTimer(callSeconds)}
-            </span>
-          </div>
+    <>
+      <div
+        className={containerClass}
+        onClick={isMin ? expand : undefined}
+        role={isMin ? 'button' : undefined}
+      >
+        {/* Media elements stay mounted in every mode so audio never drops */}
+        <video ref={remoteVideoRef} autoPlay playsInline className={remoteVideoClass} />
+        <video ref={localVideoRef} autoPlay playsInline muted className={localVideoClass} />
 
-          {isRecording && (
-            <div className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-rose-950/90 backdrop-blur-md border border-rose-500/60 text-xs font-bold text-rose-300 animate-pulse shadow-lg shadow-rose-950/50 shrink-0">
-              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-              <span className="font-mono text-xs">
-                REC {formatSecondsToTimer(recordingSeconds)}
-              </span>
-              <span className="text-[10px] text-rose-400 font-normal hidden sm:inline">
-                (Local Memory)
-              </span>
-            </div>
-          )}
+        {/* ================= FULL SCREEN ================= */}
+        {!isMin && (
+          <>
+            {showRemoteVideo && (
+              <>
+                <div className="absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-black/60 to-transparent z-[1] pointer-events-none" />
+                <div className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/70 to-transparent z-[1] pointer-events-none" />
+              </>
+            )}
 
-          {!isRecording && recordedVideo && (
-            <button
-              onClick={() => setIsDownloadModalOpen(true)}
-              className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-indigo-900/80 backdrop-blur-md border border-indigo-500/60 text-xs font-bold text-indigo-200 hover:text-white transition-all shadow-md shrink-0"
-              title="Preview and download your recorded video">
-              <Download className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="hidden xs:inline">Download</span>
-              <span className="text-[10px] text-indigo-300 font-mono">
-                ({recordedVideo.sizeMB} MB)
-              </span>
-            </button>
-          )}
+            <div className="relative z-10 flex flex-col h-full pt-[max(0.75rem,env(safe-area-inset-top))]">
+              {/* Top bar */}
+              <div className="flex items-center justify-between px-4 pt-2">
+                <button
+                  type="button"
+                  onClick={minimize}
+                  aria-label="Minimize call"
+                  title="Minimize (keep talking while you browse)"
+                  className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-md flex items-center justify-center"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
 
-          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900/80 backdrop-blur-md border border-slate-700/60 text-xs text-slate-300 shrink-0">
-            <Signal
-              className={`w-3.5 h-3.5 ${networkQuality.rating === 'Excellent' ? 'text-emerald-400' : 'text-amber-400'}`}
-            />
-            <span>{networkQuality.rating}</span>
-            <span className="text-[10px] text-slate-400">
-              ({networkQuality.rtt}ms)
-            </span>
-          </div>
-        </div>
+                <div className="text-center min-w-0 px-2">
+                  <p className="font-bold text-base truncate max-w-[200px]">
+                    {partner?.full_name || 'Partner'}
+                  </p>
+                  <p className="text-xs text-white/75 font-mono">
+                    {formatSecondsToTimer(callSeconds)}
+                    {isRecording && (
+                      <span className="ml-2 text-rose-300 font-bold animate-pulse">
+                        ● REC {formatSecondsToTimer(recordingSeconds)}
+                      </span>
+                    )}
+                  </p>
+                  {statusLine && (
+                    <p
+                      className={`text-[11px] font-semibold ${
+                        connected ? 'text-amber-300' : 'text-white/60'
+                      }`}
+                    >
+                      {statusLine}
+                    </p>
+                  )}
+                </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          <div className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-slate-900/80 backdrop-blur-md border border-slate-700/60 text-xs truncate max-w-[130px] sm:max-w-none">
-            <span className="text-slate-400 hidden xs:inline">
-              Partner:
-            </span>
-            <span className="font-bold text-white truncate">
-              {partner?.full_name || 'Partner'}
-            </span>
-          </div>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setMenuOpen((v) => !v)}
+                    aria-label="More options"
+                    className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-md flex items-center justify-center"
+                  >
+                    <MoreHorizontal className="w-5 h-5" />
+                  </button>
+                  {menuOpen && (
+                    <div className="absolute right-0 top-12 w-56 rounded-2xl bg-slate-900/95 backdrop-blur-xl border border-white/10 shadow-2xl py-1.5 text-sm z-30">
+                      <button
+                        onClick={handleToggleRecord}
+                        className="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-white/10 text-left"
+                      >
+                        {isRecording ? (
+                          <Square className="w-4 h-4 text-rose-400 fill-rose-400" />
+                        ) : (
+                          <Circle className="w-4 h-4 text-rose-400 fill-rose-400" />
+                        )}
+                        {isRecording ? 'Stop recording' : 'Record (this device only)'}
+                      </button>
+                      {recordedVideo && !isRecording && (
+                        <button
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setIsDownloadModalOpen(true);
+                          }}
+                          className="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-white/10 text-left"
+                        >
+                          <Download className="w-4 h-4 text-indigo-300" />
+                          Download recording ({recordedVideo.sizeMB} MB)
+                        </button>
+                      )}
+                      {onNextPartner && (
+                        <button
+                          onClick={handleNext}
+                          className="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-white/10 text-left"
+                        >
+                          <SkipForward className="w-4 h-4 text-indigo-300" />
+                          Next partner
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          setIsReportOpen(true);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-white/10 text-left text-rose-300"
+                      >
+                        <ShieldAlert className="w-4 h-4" />
+                        Report or block
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
 
-          <button
-            onClick={() => setIsReportOpen(true)}
-            className="p-1.5 sm:p-2 rounded-full bg-slate-900/80 backdrop-blur-md border border-slate-700/60 text-slate-400 hover:text-rose-400 transition-colors shrink-0"
-            title="Report or Block Participant">
-            <ShieldAlert className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
+              {/* Middle: avatar view (audio call, or video not arrived yet) */}
+              <div className="flex-1 flex flex-col items-center justify-center px-6">
+                {!showRemoteVideo && (
+                  <>
+                    <div className="relative">
+                      {connected && (
+                        <>
+                          <span className="absolute -inset-4 rounded-full bg-white/5 animate-ping" />
+                          <span className="absolute -inset-8 rounded-full bg-white/[0.03]" />
+                        </>
+                      )}
+                      <PartnerAvatar
+                        user={partner}
+                        className="relative w-40 h-40 sm:w-48 sm:h-48 rounded-full text-6xl ring-4 ring-white/15 shadow-2xl"
+                      />
+                    </div>
+                    <p className="mt-6 text-sm text-white/70">
+                      {isVideoCall
+                        ? connected
+                          ? 'Waiting for partner video…'
+                          : 'Starting video call…'
+                        : 'Audio call'}
+                    </p>
+                  </>
+                )}
 
-      {/* Main Video Call Stage */}
-      <div className="relative flex-1 grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 p-3 sm:p-6 pt-16 sm:pt-20 pb-20 sm:pb-28">
-        {/* Remote Partner Video */}
-        <div className="relative rounded-2xl overflow-hidden bg-slate-900 border border-slate-800 flex items-center justify-center group shadow-inner">
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            className="w-full h-full object-cover"
-          />
+                {/* Local camera-off placeholder in the PiP spot */}
+                {isVideoCall && isVideoOff && (
+                  <div className="absolute right-4 bottom-36 z-20 w-28 h-40 rounded-2xl bg-slate-800/90 border-2 border-white/40 flex flex-col items-center justify-center gap-1.5 text-center">
+                    <PartnerAvatar
+                      user={currentUser}
+                      className="w-12 h-12 rounded-full text-lg"
+                    />
+                    <span className="text-[10px] text-white/70">Camera off</span>
+                  </div>
+                )}
+              </div>
 
-          <div
-            className={`absolute inset-0 flex-col items-center justify-center p-6 text-center bg-slate-900/95 pointer-events-none ${hasRemoteVideo ? 'hidden' : 'flex'}`}>
-            <div className="relative mb-4">
-              <img
-                src={
-                  partner?.avatar_url ||
-                  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200'
-                }
-                alt={partner?.full_name}
-                className="w-28 h-28 sm:w-36 sm:h-36 rounded-full object-cover ring-4 ring-indigo-500/40 shadow-xl"
-              />
-              <div className="absolute bottom-1 right-1 w-6 h-6 rounded-full bg-emerald-500 ring-4 ring-slate-900 flex items-center justify-center">
-                <Volume2 className="w-3.5 h-3.5 text-white animate-pulse" />
+              {/* Bottom controls */}
+              <div className="px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-4">
+                <div className="mx-auto max-w-xs flex items-center justify-center gap-4">
+                  <CtrlBtn
+                    onClick={() => setSpeakerOff((v) => !v)}
+                    active={speakerOff}
+                    label={speakerOff ? 'Speaker off' : 'Speaker on'}
+                  >
+                    {speakerOff ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
+                  </CtrlBtn>
+                  <CtrlBtn
+                    onClick={handleToggleMic}
+                    active={isMuted}
+                    label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+                  >
+                    {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+                  </CtrlBtn>
+                  {isVideoCall && (
+                    <CtrlBtn
+                      onClick={handleToggleVideo}
+                      active={isVideoOff}
+                      label={isVideoOff ? 'Turn camera on' : 'Turn camera off'}
+                    >
+                      {isVideoOff ? <VideoOff className="w-6 h-6" /> : <Video className="w-6 h-6" />}
+                    </CtrlBtn>
+                  )}
+                  <CtrlBtn onClick={handleEnd} danger label="End call">
+                    <PhoneOff className="w-7 h-7" />
+                  </CtrlBtn>
+                </div>
               </div>
             </div>
-            <h3 className="text-lg font-bold text-white">
-              {partner?.full_name}
-            </h3>
-            <p className="text-xs text-amber-300 mb-1">
-              {connState === 'connected' ? 'Connected (no video)' : `Connecting… (${connState})`}
-            </p>
-            <p className="text-xs text-slate-400 mt-1">
-              {partner?.country || 'Bangladesh'} •{' '}
-              {partner?.native_language || 'Bengali'}
-            </p>
-          </div>
+          </>
+        )}
 
-          <div className="absolute bottom-3 left-3 px-2.5 py-1 rounded-lg bg-slate-950/80 backdrop-blur-md text-[11px] font-semibold text-slate-200">
-            {partner?.full_name}
-          </div>
-        </div>
-
-        {/* Local User Video */}
-        <div className="relative rounded-2xl overflow-hidden bg-slate-900 border border-slate-800 flex items-center justify-center shadow-inner">
-          <video
-            ref={localVideoRef}
-            autoPlay
-            playsInline
-            muted
-            className={`w-full h-full object-cover transform -scale-x-100 ${isVideoOff ? 'hidden' : 'block'}`}
-          />
-
-          {isVideoOff && (
-            <div className="flex flex-col items-center justify-center p-6 text-center">
-              <img
-                src={
-                  currentUser?.avatar_url ||
-                  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200'
-                }
-                alt="You"
-                className="w-24 h-24 rounded-full object-cover ring-2 ring-indigo-500/30 mb-3"
+        {/* ================= MINIMIZED: audio bar ================= */}
+        {isMin && !miniVideoCard && (
+          <div className="relative z-10 flex items-center gap-3 h-full px-3">
+            <div className="relative shrink-0">
+              <PartnerAvatar user={partner} className="w-10 h-10 rounded-full text-sm" />
+              <span
+                className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full ring-2 ring-[#2a1055] ${
+                  connected ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'
+                }`}
               />
-              <span className="text-sm font-bold text-slate-200">
-                You (Camera Off)
-              </span>
-              <span className="text-xs text-slate-500 mt-0.5">
-                Audio stream active
-              </span>
             </div>
-          )}
-
-          <div className="absolute bottom-3 left-3 flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-950/80 backdrop-blur-md text-[11px] font-semibold text-slate-200">
-            <span>You</span>
-            {isMuted && (
-              <span className="text-rose-400 text-[10px] font-bold">
-                (Muted)
-              </span>
-            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold truncate">{partner?.full_name || 'Partner'}</p>
+              <p className="text-[11px] text-white/70 font-mono">
+                {formatSecondsToTimer(callSeconds)} · Tap to return
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleToggleMic();
+              }}
+              aria-label={isMuted ? 'Unmute' : 'Mute'}
+              className={`w-9 h-9 rounded-full flex items-center justify-center ${
+                isMuted ? 'bg-white text-slate-900' : 'bg-white/20 text-white'
+              }`}
+            >
+              {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleEnd();
+              }}
+              aria-label="End call"
+              className="w-9 h-9 rounded-full bg-red-500 text-white flex items-center justify-center"
+            >
+              <PhoneOff className="w-4 h-4" />
+            </button>
           </div>
-        </div>
+        )}
+
+        {/* ================= MINIMIZED: video card ================= */}
+        {miniVideoCard && (
+          <>
+            <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/70 to-transparent pointer-events-none" />
+            <span className="absolute left-2 bottom-1.5 z-10 text-[11px] font-mono font-bold">
+              {formatSecondsToTimer(callSeconds)}
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleEnd();
+              }}
+              aria-label="End call"
+              className="absolute right-1.5 top-1.5 z-10 w-7 h-7 rounded-full bg-red-500 text-white flex items-center justify-center"
+            >
+              <PhoneOff className="w-3.5 h-3.5" />
+            </button>
+          </>
+        )}
       </div>
 
-      {/* Bottom Call Controls */}
-      <div className="absolute bottom-3 sm:bottom-6 left-1/2 transform -translate-x-1/2 z-30 flex items-center justify-center gap-1.5 sm:gap-3 p-2 sm:p-3 rounded-2xl bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 shadow-2xl max-w-[96vw] overflow-x-auto">
-        <button
-          onClick={handleToggleMic}
-          className={`p-2.5 sm:p-3.5 rounded-xl transition-all font-bold shrink-0 ${
-            isMuted
-              ? 'bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 ring-1 ring-rose-500/40'
-              : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
-          }`}
-          title={isMuted ? 'Unmute Microphone' : 'Mute Microphone'}>
-          {isMuted ? (
-            <MicOff className="w-4 h-4 sm:w-5 sm:h-5" />
-          ) : (
-            <Mic className="w-4 h-4 sm:w-5 sm:h-5" />
-          )}
-        </button>
-
-        <button
-          onClick={handleToggleVideo}
-          className={`p-2.5 sm:p-3.5 rounded-xl transition-all font-bold shrink-0 ${
-            isVideoOff
-              ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 ring-1 ring-amber-500/40'
-              : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
-          }`}
-          title={isVideoOff ? 'Turn Camera On' : 'Turn Camera Off'}>
-          {isVideoOff ? (
-            <VideoOff className="w-4 h-4 sm:w-5 sm:h-5" />
-          ) : (
-            <Video className="w-4 h-4 sm:w-5 sm:h-5" />
-          )}
-        </button>
-
-        <button
-          onClick={handleToggleRecord}
-          className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-2.5 sm:py-3.5 rounded-xl font-bold text-xs sm:text-sm transition-all shrink-0 ${
-            isRecording
-              ? 'bg-rose-600/30 text-rose-300 ring-2 ring-rose-500 hover:bg-rose-600/40 animate-pulse'
-              : 'bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white'
-          }`}
-          title={
-            isRecording
-              ? 'Click to Stop Recording'
-              : 'Start Local Video Recording (Stored in browser memory only)'
-          }>
-          {isRecording ? (
-            <>
-              <Square className="w-3.5 h-3.5 fill-rose-500 text-rose-500 animate-ping" />
-              <span className="font-mono text-rose-400 font-bold text-xs">
-                {formatSecondsToTimer(recordingSeconds)}
-              </span>
-              <span className="hidden md:inline text-xs font-semibold">
-                Stop
-              </span>
-            </>
-          ) : (
-            <>
-              <Circle className="w-3.5 h-3.5 fill-rose-500 text-rose-500" />
-              <span className="hidden sm:inline">Record</span>
-            </>
-          )}
-        </button>
-
-        <button
-          onClick={() => setShowTopicPrompt(!showTopicPrompt)}
-          className="p-2.5 sm:p-3.5 rounded-xl bg-slate-800 text-slate-200 hover:bg-slate-700 transition-colors shrink-0"
-          title="Toggle Conversation Topic">
-          <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
-        </button>
-
-        <button
-          onClick={handleNext}
-          className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs sm:text-sm shadow-lg shadow-indigo-600/30 transition-all hover:scale-105 shrink-0"
-          title="Skip to Next Speaking Partner">
-          <SkipForward className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-          <span>Next</span>
-          <span className="hidden sm:inline">Partner</span>
-        </button>
-
-        <button
-          onClick={handleEnd}
-          className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs sm:text-sm shadow-lg shadow-rose-600/30 transition-all hover:scale-105 shrink-0"
-          title="End Speaking Session">
-          <PhoneOff className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-          <span className="hidden sm:inline">End Call</span>
-        </button>
+      {/* Modals sit above the call layer */}
+      <div className="relative z-[120]">
+        <ReportModal
+          isOpen={isReportOpen}
+          onClose={() => setIsReportOpen(false)}
+          partner={partner}
+          currentUserId={currentUser.id}
+        />
+        <PostCallDownloadModal
+          isOpen={isDownloadModalOpen}
+          onClose={handleModalClose}
+          recordedVideo={recordedVideo}
+          partner={partner}
+          callDurationSeconds={callSeconds}
+        />
       </div>
-
-      <ReportModal
-        isOpen={isReportOpen}
-        onClose={() => setIsReportOpen(false)}
-        partner={partner}
-        currentUserId={currentUser.id}
-      />
-
-      <PostCallDownloadModal
-        isOpen={isDownloadModalOpen}
-        onClose={handleModalClose}
-        recordedVideo={recordedVideo}
-        partner={partner}
-        callDurationSeconds={callSeconds}
-      />
-    </div>
+    </>
   );
 }
