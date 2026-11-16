@@ -3,7 +3,7 @@ import { Phone, PhoneOff } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useNotification } from '../../contexts/NotificationContext.jsx';
 import { dbService } from '../../services/supabase/dbService.js';
-import { OneToOneCall } from '../../../src/features/speaking/OneToOneCall.jsx';
+import { useActiveCall } from '../../contexts/ActiveCallContext.jsx';
 import { formatSecondsToTimer } from '../../utils/formatters.js';
 
 /**
@@ -24,7 +24,7 @@ export function IncomingCallHandler() {
 
 	const [incoming, setIncoming] = useState(null); // { request, caller }
 	const [secondsLeft, setSecondsLeft] = useState(RING_SECONDS);
-	const [activeCall, setActiveCall] = useState(null); // { request, caller }
+	const { call: globalCall, startCall } = useActiveCall();
 
 	const incomingRef = useRef(null);
 	const activeRef = useRef(null);
@@ -38,8 +38,8 @@ export function IncomingCallHandler() {
 		incomingRef.current = incoming;
 	}, [incoming]);
 	useEffect(() => {
-		activeRef.current = activeCall;
-	}, [activeCall]);
+		activeRef.current = globalCall;
+	}, [globalCall]);
 
 	const showRequest = useCallback(
 		async (request) => {
@@ -157,7 +157,13 @@ export function IncomingCallHandler() {
 		setIncoming(null);
 		try {
 			await dbService.acceptCallRequest(current.request.id, userId);
-			setActiveCall(current);
+			startCall({
+				partner: current.caller,
+				callRequestId: current.request.id,
+				audioOnly: current.request.media_mode === 'audio',
+				onEnd: handleEndCall,
+				onNext: null,
+			});
 		} catch (err) {
 			console.warn('Accept failed:', err);
 			addToastRef.current('This call is no longer available.', 'info');
@@ -177,7 +183,6 @@ export function IncomingCallHandler() {
 
 	// Receiver finished the call
 	const handleEndCall = async (durationSeconds) => {
-		setActiveCall(null);
 		if (durationSeconds > 0) {
 			addToastRef.current(
 				`Practice completed: ${formatSecondsToTimer(durationSeconds)} recorded!`,
@@ -190,22 +195,6 @@ export function IncomingCallHandler() {
 			}
 		}
 	};
-
-	if (activeCall) {
-		return (
-			<div className="fixed inset-0 z-[100] bg-slate-950 p-2 sm:p-6 overflow-auto">
-				<OneToOneCall
-					key={activeCall.request.id}
-					partner={activeCall.caller}
-					currentUser={currentUser}
-					initialAudioOnly={activeCall.request.media_mode === 'audio'}
-					callRequestId={activeCall.request.id}
-					onEndCall={handleEndCall}
-					onNextPartner={handleEndCall}
-				/>
-			</div>
-		);
-	}
 
 	if (!incoming) return null;
 	const { caller } = incoming;
