@@ -22,6 +22,7 @@ import { ForgotPasswordPage } from './pages/ForgotPasswordPage.jsx';
 import { ProtectedRoute } from './components/auth/ProtectedRoute.jsx';
 import { RoleGuard } from './components/auth/RoleGuard.jsx';
 
+import { ChatRoomPage } from './pages/ChatRoomPage.jsx';
 import { PracticeInvitePage } from './pages/PracticeInvitePage.jsx';
 import { IncomingCallHandler } from './components/calls/Incomingcallhandler.jsx';
 import { ActiveCallProvider } from './contexts/ActiveCallContext.jsx';
@@ -90,6 +91,17 @@ export default function App() {
                   </ProtectedRoute>
                 }
               />
+
+              {/* Omegle-style random video chat room (full screen, no site chrome) */}
+              <Route
+                path="/chat/room"
+                element={
+                  <ProtectedRoute>
+                    <ChatRoomPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route path="/chat" element={<Navigate to="/chat/room" replace />} />
 
               {/* Standard Marketing & Feature Views wrapped with MainLayout */}
               <Route
