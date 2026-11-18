@@ -86,6 +86,7 @@ export function ChatRoom() {
 
 	const sessionRef = useRef(null);
 	const bootRef = useRef(null);
+	const bootingRef = useRef(false);
 	const localVideoRef = useRef(null);
 	const remoteVideoRef = useRef(null);
 	const endRef = useRef(null);
@@ -193,6 +194,8 @@ export function ChatRoom() {
 		// Auto-join: ask for camera/mic and start searching as soon as the page opens
 		let cancelled = false;
 		bootRef.current = async () => {
+			if (bootingRef.current) return;
+			bootingRef.current = true;
 			setPermError(null);
 			try {
 				await session.startMedia({ video: true });
@@ -205,6 +208,8 @@ export function ChatRoom() {
 				setPermError(
 					err.message || 'Could not access microphone or camera.'
 				);
+			} finally {
+				bootingRef.current = false;
 			}
 		};
 		// Deferred so React StrictMode's throw-away first mount never triggers a second permission request
@@ -228,6 +233,36 @@ export function ChatRoom() {
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [currentUser]);
+
+	// While the permission screen is showing, retry automatically as soon as the user allows
+	// access (from the popup OR from the address-bar settings) so they never have to press anything.
+	useEffect(() => {
+		if (!permError) return undefined;
+		const retry = () => bootRef.current && bootRef.current();
+		const cleanups = [];
+		(async () => {
+			for (const name of ['camera', 'microphone']) {
+				try {
+					const status = await navigator.permissions.query({ name });
+					const onChange = () =>
+						status.state === 'granted' && retry();
+					status.addEventListener('change', onChange);
+					cleanups.push(() =>
+						status.removeEventListener('change', onChange)
+					);
+				} catch {
+					/* Permissions API not supported for this name */
+				}
+			}
+		})();
+		window.addEventListener('focus', retry);
+		document.addEventListener('visibilitychange', retry);
+		return () => {
+			cleanups.forEach((fn) => fn());
+			window.removeEventListener('focus', retry);
+			document.removeEventListener('visibilitychange', retry);
+		};
+	}, [permError]);
 
 	// Keep the local preview attached to the stream
 	useEffect(() => {
@@ -288,7 +323,7 @@ export function ChatRoom() {
 	const handleNext = () => sessionRef.current?.next();
 	const handleLeave = async () => {
 		await sessionRef.current?.stop();
-		navigate('/practice');
+		navigate('/');
 	};
 
 	const handleToggleVideo = () =>
