@@ -48,11 +48,11 @@ export function HomePage() {
           {/* Quick CTA Buttons */}
           <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3 sm:gap-4 pt-2">
             <Link
-              to="/practice"
+              to="/chat/room"
               className="w-full sm:w-auto px-6 sm:px-8 py-3.5 sm:py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs sm:text-sm shadow-xl shadow-indigo-600/30 hover:scale-102 transition-all flex items-center justify-center gap-2.5 sm:gap-3"
             >
-              <Mic className="w-4 h-4 sm:w-5 sm:h-5 animate-pulse" />
-              <span>Start 1-on-1 Practice Now</span>
+              <Video className="w-4 h-4 sm:w-5 sm:h-5 animate-pulse" />
+              <span>Start Random Practice</span>
             </Link>
 
             <Link
@@ -68,7 +68,7 @@ export function HomePage() {
               className="w-full sm:w-auto px-5 sm:px-6 py-3.5 sm:py-4 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold text-xs sm:text-sm border border-amber-500/40 backdrop-blur-md transition-all flex items-center justify-center gap-2"
             >
               <Trophy className="w-4 h-4 text-amber-400" />
-              <span>Speaking Leaderboard</span>
+              <span>Leaderboard</span>
             </Link>
           </div>
 
@@ -78,11 +78,7 @@ export function HomePage() {
               <Clock className="w-4 h-4 text-indigo-400" />
               <span>20 Minutes Free Daily Allowance</span>
             </div>
-            <span className="hidden sm:inline">•</span>
-            <div className="flex items-center gap-1.5 text-emerald-400 font-semibold">
-              <ShieldCheck className="w-4 h-4" />
-              <span>Vetted & Approved Community</span>
-            </div>
+         
           </div>
 
         </div>
