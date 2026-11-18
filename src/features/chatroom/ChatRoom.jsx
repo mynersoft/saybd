@@ -207,10 +207,15 @@ export function ChatRoom() {
 				);
 			}
 		};
-		bootRef.current();
+		// Deferred so React StrictMode's throw-away first mount never triggers a second permission request
+		const bootTimer = setTimeout(
+			() => bootRef.current && bootRef.current(),
+			0
+		);
 
 		return () => {
 			cancelled = true;
+			clearTimeout(bootTimer);
 			offs.forEach((off) => off && off());
 			session.destroy();
 			dbService
@@ -361,7 +366,7 @@ export function ChatRoom() {
 					then press the button again.
 				</p>
 				<button
-					onClick={() => navigate('/practice')}
+					onClick={() => navigate('/')}
 					className="mt-5 text-sm text-white/70 underline">
 					Go back
 				</button>

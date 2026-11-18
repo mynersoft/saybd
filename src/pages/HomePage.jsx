@@ -56,6 +56,14 @@ export function HomePage() {
             </Link>
 
             <Link
+              to="/partner"
+              className="w-full sm:w-auto px-5 sm:px-6 py-3.5 sm:py-4 rounded-2xl bg-slate-800/80 hover:bg-slate-700/80 text-white font-bold text-xs sm:text-sm border border-slate-700/80 backdrop-blur-md transition-all flex items-center justify-center gap-2"
+            >
+              <Radio className="w-4 h-4 text-rose-400 animate-pulse" />
+              <span>Online Partner</span>
+            </Link>
+
+            <Link
               to="/classes"
               className="w-full sm:w-auto px-5 sm:px-6 py-3.5 sm:py-4 rounded-2xl bg-slate-800/80 hover:bg-slate-700/80 text-white font-bold text-xs sm:text-sm border border-slate-700/80 backdrop-blur-md transition-all flex items-center justify-center gap-2"
             >
