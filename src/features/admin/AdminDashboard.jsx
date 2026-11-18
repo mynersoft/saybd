@@ -30,7 +30,8 @@ import {
   Hourglass,
   AlertCircle,
   Filter,
-  ArrowUpRight
+  ArrowUpRight,
+  Database
 } from 'lucide-react';
 
 export function AdminDashboard({ activeTabProp, onTabChange }) {
