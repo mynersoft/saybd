@@ -6,6 +6,7 @@ import { useNotification } from '../../contexts/NotificationContext.jsx';
 import { formatCurrency, formatDate } from '../../utils/formatters.js';
 import { COMMUNITY_STATUS, ROLES } from '../../config/constants.js';
 import { SupabaseUsagePanel } from './SupabaseUsagePanel.jsx';
+import { AdminUserManager } from './AdminUserManager.jsx';
 import {
   Trophy,
   Users,
@@ -30,8 +31,7 @@ import {
   Hourglass,
   AlertCircle,
   Filter,
-  ArrowUpRight,
-  Database
+  ArrowUpRight
 } from 'lucide-react';
 
 export function AdminDashboard({ activeTabProp, onTabChange }) {
@@ -253,7 +253,7 @@ const handleReviewMentorApp = async (applicationId, status, rejectionReason = ''
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-                activeTab === tab.id
+                activeTab.split(':')[0] === tab.id
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
               }`}
@@ -556,54 +556,9 @@ const handleReviewMentorApp = async (applicationId, status, rejectionReason = ''
         </div>
       )}
 
-      {/* TAB 3: USERS DIRECTORY */}
-      {activeTab === 'users' && (
-        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 space-y-4">
-          <div className="flex items-center justify-between gap-4 pb-3 border-b border-slate-100 dark:border-slate-800">
-            <h3 className="font-extrabold text-base text-slate-900 dark:text-white">Registered Users</h3>
-            <span className="text-xs text-slate-400">{profiles.length} Total</span>
-          </div>
-
-          <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {profiles.length === 0 ? (
-              <div className="py-8 text-center text-slate-400 text-xs">
-                No registered users found in database yet.
-              </div>
-            ) : (
-              profiles.map((u) => (
-              <div key={u.id} className="py-3 flex items-center justify-between gap-3 text-xs">
-                <div className="flex items-center gap-3">
-                  {u.avatar_url ? (
-                    <img src={u.avatar_url} alt={u.full_name} className="w-8 h-8 rounded-lg object-cover" />
-                  ) : (
-                    <div className="w-8 h-8 rounded-lg bg-indigo-600/10 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 font-bold text-xs flex items-center justify-center uppercase">
-                      {(u.full_name || u.email || 'U').charAt(0)}
-                    </div>
-                  )}
-                  <div>
-                    <h5 className="font-bold text-slate-900 dark:text-white">{u.full_name}</h5>
-                    <span className="text-slate-400">{u.native_language}</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                    {u.role}
-                  </span>
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      u.status === 'approved'
-                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                    }`}
-                  >
-                    {u.status}
-                  </span>
-                </div>
-              </div>
-            )))}
-          </div>
-        </div>
+      {/* TAB 3: USER MANAGEMENT (students / mentors / admins) */}
+      {activeTab.split(':')[0] === 'users' && (
+        <AdminUserManager mode={activeTab.split(':')[1] || 'all'} />
       )}
 
       {/* TAB 4: LIVE CLASSES MONITOR */}
