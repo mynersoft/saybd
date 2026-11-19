@@ -37,6 +37,18 @@ function MainLayout({ children }) {
       </main>
       <Footer />
       <MobileBottomBar />
+
+
+                        <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+
+                                <script>eruda.init();</script> 
+
+
+
+
+
+
+
     </div>
   );
 }
