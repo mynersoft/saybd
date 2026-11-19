@@ -5,7 +5,7 @@ import { AdminDashboard } from '../features/admin/AdminDashboard.jsx';
 export function AdminPage() {
   const [activeTab, setActiveTab] = useState('admin-overview');
 
-  // Sidebar item id -> AdminDashboard tab. Every sidebar id must land somewhere (never a blank page).
+  // Sidebar items id -> AdminDashboard tab. Every sidebar id must land somewhere (never a blank page).
   const resolveAdminTab = (tab) => {
     const map = {
       'admin-overview': 'overview', 'admin-home': 'overview',
