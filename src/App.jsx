@@ -1,6 +1,6 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './contexts/AuthContext.jsx';
+import { AuthProvider } from './contexts/AuthContext.jsx';
 import { ThemeProvider } from './contexts/ThemeContext.jsx';
 import { NotificationProvider } from './contexts/NotificationContext.jsx';
 import { Navbar } from './components/common/Navbar.jsx';
@@ -37,225 +37,120 @@ function MainLayout({ children }) {
       </main>
       <Footer />
       <MobileBottomBar />
-
-
-                        <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-
-                                <script>eruda.init();</script> 
-
-
-
-
-
-
-
     </div>
   );
 }
 
 export default function App() {
   return (
-		<ThemeProvider>
-			<NotificationProvider>
-				<AuthProvider>
-					<BrowserRouter>
-						<ActiveCallProvider>
-							<IncomingCallHandler />
-							<Routes>
-								{/* Dedicated Full-Screen Unified Dashboards with ProtectedRoute & RoleGuard */}
-								<Route
-									path="/dashboard"
-									element={
-										<ProtectedRoute>
-											<DashboardRedirect />
-										</ProtectedRoute>
-									}
-								/>
+    <ThemeProvider>
+      <NotificationProvider>
+        <AuthProvider>
+          <BrowserRouter>
+            <ActiveCallProvider>
+              <IncomingCallHandler />
+              <Routes>
+                {/* Dedicated Full-Screen Unified Dashboards with ProtectedRoute & RoleGuard */}
+                <Route
+                  path="/dashboard"
+                  element={
+                    <ProtectedRoute>
+                      <DashboardRedirect />
+                    </ProtectedRoute>
+                  }
+                />
 
-								<Route
-									path="/dashboard/student/*"
-									element={
-										<ProtectedRoute>
-											<RoleGuard
-												allowedRoles={[
-													'student',
-													'admin',
-												]}>
-												<StudentDashboardPage />
-											</RoleGuard>
-										</ProtectedRoute>
-									}
-								/>
+                <Route
+                  path="/dashboard/student/*"
+                  element={
+                    <ProtectedRoute>
+                      <RoleGuard allowedRoles={['student', 'admin']}>
+                        <StudentDashboardPage />
+                      </RoleGuard>
+                    </ProtectedRoute>
+                  }
+                />
 
-								<Route
-									path="/dashboard/mentor/*"
-									element={
-										<ProtectedRoute>
-											<RoleGuard
-												allowedRoles={[
-													'mentor',
-													'admin',
-												]}>
-												<MentorDashboardPage />
-											</RoleGuard>
-										</ProtectedRoute>
-									}
-								/>
+                <Route
+                  path="/dashboard/mentor/*"
+                  element={
+                    <ProtectedRoute>
+                      <RoleGuard allowedRoles={['mentor', 'admin']}>
+                        <MentorDashboardPage />
+                      </RoleGuard>
+                    </ProtectedRoute>
+                  }
+                />
 
-								<Route
-									path="/dashboard/admin/*"
-									element={
-										<ProtectedRoute>
-											<RoleGuard allowedRoles={['admin']}>
-												<AdminPage />
-											</RoleGuard>
-										</ProtectedRoute>
-									}
-								/>
+                <Route
+                  path="/dashboard/admin/*"
+                  element={
+                    <ProtectedRoute>
+                      <RoleGuard allowedRoles={['admin']}>
+                        <AdminPage />
+                      </RoleGuard>
+                    </ProtectedRoute>
+                  }
+                />
 
-								{/* Omegle-style random video chat room (full screen, no site chrome) */}
-								<Route
-									path="/chat/room"
-									element={
-										<ProtectedRoute>
-											<ChatRoomPage />
-										</ProtectedRoute>
-									}
-								/>
-								<Route
-									path="/chat"
-									element={
-										<Navigate to="/chat/room" replace />
-									}
-								/>
+                {/* Omegle-style random video chat room (full screen, no site chrome) */}
+                <Route
+                  path="/chat/room"
+                  element={
+                    <ProtectedRoute>
+                      <ChatRoomPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route path="/chat" element={<Navigate to="/chat/room" replace />} />
 
-								{/* Standard Marketing & Feature Views wrapped with MainLayout */}
-								<Route
-									path="/*"
-									element={
-										<MainLayout>
-											<Routes>
-												<Route
-													path="/"
-													element={<HomePage />}
-												/>
-												<Route
-													path="/practice"
-													element={
-														<ProtectedRoute>
-															<PracticePage />
-														</ProtectedRoute>
-													}
-												/>
-												<Route
-													path="/practice/invite/:token"
-													element={
-														<PracticeInvitePage />
-													}
-												/>
-												<Route
-													path="/classes"
-													element={<ClassroomsPage />}
-												/>
-												<Route
-													path="/courses"
-													element={<CoursesPage />}
-												/>
-												<Route
-													path="/leaderboard"
-													element={
-														<LeaderboardPage />
-													}
-												/>
-												<Route
-													path="/profile"
-													element={
-														<ProtectedRoute>
-															<ProfilePage />
-														</ProtectedRoute>
-													}
-												/>
-												{/* Standalone legacy redirect mappings for /mentor and /admin */}
-												<Route
-													path="/mentor"
-													element={
-														<Navigate
-															to="/dashboard/mentor"
-															replace
-														/>
-													}
-												/>
-												<Route
-													path="/admin"
-													element={
-														<Navigate
-															to="/dashboard/admin"
-															replace
-														/>
-													}
-												/>
-												<Route
-													path="/partner"
-													element={
-														<OnlineLearnersList />
-													}
-												/>
-												<Route
-													path="/login"
-													element={<LoginPage />}
-												/>
-												<Route
-													path="/signin"
-													element={
-														<Navigate
-															to="/login"
-															replace
-														/>
-													}
-												/>
-												<Route
-													path="/forgot-password"
-													element={
-														<ForgotPasswordPage />
-													}
-												/>
-												<Route
-													path="/reset-password"
-													element={
-														<ForgotPasswordPage />
-													}
-												/>
-												<Route
-													path="/signup"
-													element={<SignupPage />}
-												/>
-												<Route
-													path="/register"
-													element={
-														<Navigate
-															to="/signup"
-															replace
-														/>
-													}
-												/>
-												<Route
-													path="*"
-													element={
-														<Navigate
-															to="/"
-															replace
-														/>
-													}
-												/>
-											</Routes>
-										</MainLayout>
-									}
-								/>
-							</Routes>
-						</ActiveCallProvider>
-					</BrowserRouter>
-				</AuthProvider>
-			</NotificationProvider>
-		</ThemeProvider>
+                {/* Standard Marketing & Feature Views wrapped with MainLayout */}
+                <Route
+                  path="/*"
+                  element={
+                    <MainLayout>
+                      <Routes>
+                        <Route path="/" element={<HomePage />} />
+                        <Route
+                          path="/practice"
+                          element={
+                            <ProtectedRoute>
+                              <PracticePage />
+                            </ProtectedRoute>
+                          }
+                        />
+                        <Route path="/practice/invite/:token" element={<PracticeInvitePage />} />
+                        <Route path="/classes" element={<ClassroomsPage />} />
+                        <Route path="/courses" element={<CoursesPage />} />
+                        <Route path="/leaderboard" element={<LeaderboardPage />} />
+                        <Route
+                          path="/profile"
+                          element={
+                            <ProtectedRoute>
+                              <ProfilePage />
+                            </ProtectedRoute>
+                          }
+                        />
+                        {/* Standalone legacy redirect mappings for /mentor and /admin */}
+                        <Route path="/mentor" element={<Navigate to="/dashboard/mentor" replace />} />
+                        <Route path="/admin" element={<Navigate to="/dashboard/admin" replace />} />
+                        <Route path="/partner" element={<OnlineLearnersList />} />
+                        <Route path="/login" element={<LoginPage />} />
+                        <Route path="/signin" element={<Navigate to="/login" replace />} />
+                        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                        <Route path="/reset-password" element={<ForgotPasswordPage />} />
+                        <Route path="/signup" element={<SignupPage />} />
+                        <Route path="/register" element={<Navigate to="/signup" replace />} />
+                        <Route path="*" element={<Navigate to="/" replace />} />
+                      </Routes>
+                    </MainLayout>
+                  }
+                />
+              </Routes>
+            </ActiveCallProvider>
+          </BrowserRouter>
+        </AuthProvider>
+      </NotificationProvider>
+    </ThemeProvider>
   );
 }
