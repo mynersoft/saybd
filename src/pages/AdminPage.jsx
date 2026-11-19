@@ -3,60 +3,49 @@ import { DashboardLayout } from '../layouts/DashboardLayout.jsx';
 import { AdminDashboard } from '../features/admin/AdminDashboard.jsx';
 
 export function AdminPage() {
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState('admin-overview');
+
+  // Sidebar item id -> AdminDashboard tab. Every sidebar id must land somewhere (never a blank page).
+  const resolveAdminTab = (tab) => {
+    const map = {
+      'admin-overview': 'overview', 'admin-home': 'overview',
+      'admin-users-all': 'users', 'admin-users-students': 'users:student',
+      'admin-users-mentors': 'users:mentor', 'admin-users-admins': 'users:admin',
+      'admin-users-status': 'users:status',
+      'admin-mentors-pending': 'mentor-apps', 'admin-mentors-verified': 'users:mentor',
+      'admin-mentors-mgmt': 'users:mentor',
+      'admin-leaderboard': 'overview',
+    };
+    if (map[tab]) return map[tab];
+    if (tab.startsWith('admin-classes') || tab.startsWith('admin-classrooms') || tab.startsWith('admin-courses') || tab.startsWith('admin-enrollments')) return 'classes';
+    if (tab.startsWith('admin-payments') || tab.startsWith('admin-payouts')) return 'payouts';
+    if (tab.startsWith('admin-settings')) return 'settings';
+    if (tab === 'supabase-usage') return tab;
+    if (['overview', 'approval', 'mentor-apps', 'users', 'classes', 'payouts', 'settings'].includes(tab)) return tab;
+    return 'overview';
+  };
 
   const getTabMetadata = () => {
-    switch (activeTab) {
-      case 'overview':
-        return { title: 'Admin Command Center', subtitle: 'Platform overview, metrics and moderation controls', breadcrumbs: ['Overview'] };
-      case 'users':
-      case 'all-users':
-      case 'students-list':
-      case 'suspended-users':
-        return { title: 'User Management & Roles', subtitle: 'Directory, verification statuses, and role adjustments', breadcrumbs: ['Users'] };
-      case 'approval':
-      case 'pending-mentors':
-      case 'approved-mentors':
-        return { title: 'Mentor Application Approvals', subtitle: 'Review teacher credentials and approve instructor accounts', breadcrumbs: ['Mentors'] };
-      case 'classes':
-      case 'all-classes':
-      case 'classrooms':
-        return { title: 'Classes & Live Classrooms', subtitle: 'Monitor active video rooms and live sessions', breadcrumbs: ['Classes'] };
-      case 'courses':
-      case 'all-courses':
-      case 'pending-courses':
-        return { title: 'Course Content & Approvals', subtitle: 'Inspect mentor course curriculums and verify content', breadcrumbs: ['Courses'] };
-      case 'payouts':
-      case 'earnings':
-      case 'pending-withdrawals':
-      case 'platform-revenue':
-        return { title: 'Payments & Mentor Payouts', subtitle: 'SSLCOMMERZ gross transactions and bKash / bank disbursements', breadcrumbs: ['Finance'] };
-      case 'moderation':
-      case 'user-reports':
-        return { title: 'Safety & Moderation Reports', subtitle: 'Review flagged participants and enforce community rules', breadcrumbs: ['Moderation'] };
-      case 'settings':
-      case 'general-settings':
-      case 'financial-settings':
-        return { title: 'Platform Global Configuration', subtitle: 'Platform commissions, minimum payout and timezone', breadcrumbs: ['Settings'] };
-      case 'audit-logs':
-        return { title: 'System Security Audit Logs', subtitle: 'Immutable trace of administrative actions', breadcrumbs: ['Audit'] };
-      default:
-        return { title: 'Admin Dashboard', subtitle: '', breadcrumbs: [] };
+    const t = resolveAdminTab(activeTab);
+    const [base, sub] = t.split(':');
+    if (base === 'users') {
+      const names = { student: 'Students', mentor: 'Mentors', admin: 'Admins', status: 'Account Status' };
+      return { title: names[sub] || 'All Users', subtitle: 'View, approve, suspend and change roles', breadcrumbs: ['Users', names[sub] || 'All'] };
     }
+    const titles = {
+      overview: ['Admin Command Center', 'Platform overview, metrics and moderation controls', 'Overview'],
+      approval: ['Community Approvals', 'Approve learners for practice and classrooms', 'Approvals'],
+      'mentor-apps': ['Mentor Applications', 'Review teacher credentials and approve instructors', 'Mentors'],
+      classes: ['Classes & Live Classrooms', 'Monitor active video rooms and live sessions', 'Classes'],
+      payouts: ['Payments & Mentor Payouts', 'Transactions and mentor disbursements', 'Finance'],
+      settings: ['Platform Settings', 'Commissions, limits and timezone', 'Settings'],
+      'supabase-usage': ['Supabase Usage', 'Database and API usage', 'Usage'],
+    };
+    const m = titles[base] || titles.overview;
+    return { title: m[0], subtitle: m[1], breadcrumbs: [m[2]] };
   };
 
   const metadata = getTabMetadata();
-
-  // Normalize subkeys for AdminDashboard tabs
-  const resolveAdminTab = (tab) => {
-    if (tab === 'all-users' || tab === 'students-list' || tab === 'suspended-users') return 'users';
-    if (tab === 'pending-mentors' || tab === 'approved-mentors') return 'approval';
-    if (tab === 'all-classes' || tab === 'classrooms') return 'classes';
-    if (tab === 'all-courses' || tab === 'pending-courses') return 'classes'; // or overview
-    if (tab === 'pending-withdrawals' || tab === 'platform-revenue' || tab === 'earnings') return 'payouts';
-    if (tab === 'general-settings' || tab === 'financial-settings') return 'settings';
-    return tab;
-  };
 
   return (
     <DashboardLayout
